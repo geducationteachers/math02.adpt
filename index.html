@@ -631,7 +631,7 @@
 
 <script>
 /* CONFIG — edit these lines for a new test (comments are for the teacher only) */
-let TEST_NAME = "Test 2 M";      // tên chung khi đang làm Module 1 (chỉ dùng cho nút Report trước khi rẽ nhánh)
+let TEST_NAME = "M02adpt";      // tên chung khi đang làm Module 1 (chỉ dùng cho nút Report trước khi rẽ nhánh)
 const TEST_SECTION = "M";
 const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyJcjvbCi9xqa0NR-TGyJvpjvqJkcGHKA-x_uw6kazLVng3jKZgsqJg55ae7pPaYmWO_w/exec";
 const TIME_LIMIT_MINUTES = 35;   // thời gian cho MỖI module
@@ -643,6 +643,7 @@ const TIME_LIMIT_MINUTES = 35;   // thời gian cho MỖI module
      (Q1..QN = Module 1 trước, rồi Module 2 của nhánh đó, đúng thứ tự hiển thị). */
 const ADAPTIVE_HARD_MIN = 15;    // 22 câu Module 1: đúng từ 15 câu → Module 2 khó
 const TEST_NAME_BY_TRACK = { easy: "Test 2E M", hard: "Test 2H M" };
+const UNLOCK_TEST_NAME = "M02adpt";  // tên đề DUY NHẤT để lấy mã mở đáp án (View Answers) — cả nhánh Dễ và Khó dùng chung
 
 /* Formatting helpers for question data (teacher only):
    F(tu, mau) = phân số xếp dọc; EQ(...) = phương trình căn giữa; OL(...) = gạch trên (đoạn thẳng); SQ(...) = căn bậc hai */
@@ -2160,7 +2161,7 @@ function checkAnswerKey(){
   };
   const params = new URLSearchParams({
     action: 'getUnlockCode',
-    test_name: TEST_NAME,
+    test_name: (typeof UNLOCK_TEST_NAME !== 'undefined' ? UNLOCK_TEST_NAME : TEST_NAME),
     section: TEST_SECTION,
     callback: cbName
   });
