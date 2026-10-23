@@ -378,6 +378,19 @@
   .pdfRoot .pdfAnsBox{margin-top:12px;font-size:12.5px;font-weight:700;}
   .pdfRoot .pdfAnsBox i{display:inline-block;vertical-align:bottom;width:170px;height:30px;border:1.5px solid #333;border-radius:4px;margin-left:10px;}
   .pdfRoot .pdfBlockPad{padding-top:14px;padding-bottom:14px;}
+
+  /* ---------- AUTOSAVE / RESUME + SUBMIT STATUS ---------- */
+  .wResume{display:none;text-align:left;background:#fff7e0;border:1px solid #f2b233;border-radius:4px;padding:12px 14px;margin:0 0 18px;}
+  .wResume .rT{font-size:12.5px;font-weight:800;color:#7a5200;margin-bottom:4px;}
+  .wResume .rI{font-size:12.5px;color:#2b3440;margin-bottom:10px;line-height:1.5;}
+  .wResume .wStart{margin-top:0;}
+  .wResume .wReset{width:100%;margin-top:8px;background:#fff;color:#5b6472;border:1px solid #c9ced6;border-radius:3px;padding:9px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+  #submitStatus{display:none;border-radius:8px;padding:12px 16px;margin:0 0 16px;font-size:14px;line-height:1.5;text-align:left;font-family:'Inter',system-ui,sans-serif;}
+  #submitStatus.sending{display:block;background:#eef1f5;color:#2b3440;}
+  #submitStatus.ok{display:block;background:var(--good-bg);color:var(--good);font-weight:700;}
+  #submitStatus.fail{display:block;background:var(--bad-bg);color:var(--bad);font-weight:700;border:1.5px solid var(--bad);}
+  #submitStatus .vi{display:block;font-weight:500;font-size:13px;}
+  #submitStatus button{margin-top:8px;background:var(--bad);color:#fff;border:none;border-radius:16px;padding:7px 18px;font-weight:700;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -403,6 +416,12 @@
       <div class="brand-sub">G.EDU Language Center</div>
       <h2>SAT Math Practice</h2>
       <div class="wRule"></div>
+      <div class="wResume" id="resumeBox">
+        <div class="rT">UNFINISHED TEST FOUND · CÓ BÀI ĐANG LÀM DỞ</div>
+        <div class="rI"><b id="resumeName"></b><br><span id="resumeInfo"></span></div>
+        <button class="wStart" onclick="resumeTest()">Resume test · Tiếp tục làm bài</button>
+        <button class="wReset" onclick="discardSaved()">Discard &amp; start new · Xóa, làm bài mới</button>
+      </div>
       <p class="wLead">Enter your name and class to begin.</p>
       <label for="nameInput">Full name</label>
       <input type="text" id="nameInput" placeholder="Full name" autocomplete="off">
@@ -522,6 +541,7 @@
 <div id="resultsScreen">
   <div class="wrap">
     <div class="rcard" style="text-align:center;">
+      <div id="submitStatus"></div>
       <h2 style="color:#141414;margin-top:0;">Results</h2>
       <div class="scoreBig" id="scoreFrac">0 / 0</div>
       <div class="scoreBigLabel">correct</div>
@@ -1366,10 +1386,116 @@ function closeNextModuleModal(){
 }
 function confirmNextModule(){ nextModuleOrSubmit(true); }
 
+/* ===================== AUTOSAVE + RESUME + SAFE SUBMIT =====================
+   - Bài làm tự lưu trên máy (localStorage). Refresh / cúp điện / đóng tab → mở lại file sẽ thấy nút "Tiếp tục".
+   - Đồng hồ TẠM DỪNG khi trang bị đóng, chạy tiếp từ thời gian còn lại khi tiếp tục.
+   - Nộp bài lỗi mạng → báo đỏ, giữ bài, tự gửi lại khi có mạng (kể cả lần mở trang sau trên cùng máy). */
+let testActive = false;
+const SAVE_KEY = 'gedu_sat_state_' + TEST_NAME + '_' + location.pathname;
+const PENDING_KEY = 'gedu_sat_pending_submissions';
+function lsGet(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function lsDel(k){ try { localStorage.removeItem(k); } catch(e){} }
+
+function saveState(){
+  if(!testActive || !endTime) return;
+  const qt = Object.assign({}, qTime);
+  if(qTimerId !== null) qt[qTimerId] = (qt[qTimerId] || 0) + (Date.now() - qTimerStart) / 1000;
+  lsSet(SAVE_KEY, {
+    v: 1, name: studentName, cls: studentClass, curModule: curModule, current: current,
+    answers: answers, marked: marked, crossed: crossed, qTime: qt,
+    remaining: Math.max(0, endTime - Date.now()),
+    track: (typeof adaptiveTrack !== 'undefined' ? adaptiveTrack : null),
+    phase: document.getElementById('reviewPage').style.display === 'flex' ? 'review' : 'test',
+    savedAt: Date.now()
+  });
+}
+function startAutosave(){
+  if(window._autosaveInt) return;
+  window._autosaveInt = setInterval(saveState, 2000);
+  window.addEventListener('pagehide', saveState);
+  document.addEventListener('visibilitychange', saveState);
+}
+function resumeTest(){
+  const st = lsGet(SAVE_KEY);
+  if(!st){ document.getElementById('resumeBox').style.display = 'none'; return; }
+  studentName = st.name || ''; studentClass = st.cls || '';
+  Object.assign(answers, st.answers || {}); Object.assign(marked, st.marked || {});
+  Object.assign(crossed, st.crossed || {}); Object.assign(qTime, st.qTime || {});
+  if(st.track && typeof TEST_NAME_BY_TRACK !== 'undefined'){
+    adaptiveTrack = st.track;
+    QUESTIONS = QUESTIONS.filter(q => !q.track || q.track === st.track);
+    if(TEST_NAME_BY_TRACK[st.track]) TEST_NAME = TEST_NAME_BY_TRACK[st.track];
+  }
+  document.getElementById('startScreen').style.display = 'none';
+  testActive = true;
+  curModule = st.curModule;
+  startModule();
+  endTime = Date.now() + Math.max(0, st.remaining || 0);
+  current = Math.min(Math.max(st.current, modStart), modEnd);
+  if(!window._qswInt) window._qswInt = setInterval(updateQStopwatch, 250);
+  setupOptionsDelegation(); setupCalcDrag(); setupCalcResize();
+  if(st.phase === 'review') showReviewPage(); else renderQuestion();
+  startAutosave();
+  tickTimer();
+}
+function discardSaved(){
+  if(!confirm("Discard the unfinished test saved on this computer?\nXóa bài làm dở đang lưu trên máy này?")) return;
+  lsDel(SAVE_KEY);
+  document.getElementById('resumeBox').style.display = 'none';
+}
+
+let pendingMem = lsGet(PENDING_KEY) || [];
+let flushing = false;
+function setSubmitStatus(kind){
+  const el = document.getElementById('submitStatus');
+  el.className = kind;
+  if(kind === 'sending') el.innerHTML = 'Submitting your answers…<span class="vi">Đang gửi bài…</span>';
+  else if(kind === 'ok') el.innerHTML = '&#10003; Your answers have been submitted to your teacher.<span class="vi">Bài đã được gửi về giáo viên.</span>';
+  else el.innerHTML = '&#9888; NOT SUBMITTED YET — no internet connection. Do not close this page; it will resend automatically when Wi-Fi is back.'
+    + '<span class="vi">CHƯA GỬI ĐƯỢC BÀI do mất mạng. Đừng đóng trang — bài sẽ tự gửi lại khi có Wi-Fi. Báo giáo viên nếu vẫn lỗi.</span>'
+    + '<button onclick="flushPending()">Retry · Gửi lại</button>';
+}
+function queueSubmission(body){
+  pendingMem.push(body);
+  lsSet(PENDING_KEY, pendingMem);
+  flushPending();
+}
+function flushPending(){
+  if(flushing || !pendingMem.length) return;
+  flushing = true;
+  setSubmitStatus('sending');
+  fetch(WEBAPP_URL, { method: "POST", mode: "no-cors", body: new URLSearchParams(pendingMem[0]) })
+    .then(() => {
+      pendingMem.shift(); lsSet(PENDING_KEY, pendingMem); flushing = false;
+      if(pendingMem.length) flushPending(); else setSubmitStatus('ok');
+    })
+    .catch(() => {
+      flushing = false; setSubmitStatus('fail');
+      clearTimeout(window._retryT); window._retryT = setTimeout(flushPending, 15000);
+    });
+}
+window.addEventListener('online', flushPending);
+window.addEventListener('beforeunload', function(e){
+  if(pendingMem.length){ e.preventDefault(); e.returnValue = ''; }
+});
+(function initSavedState(){
+  const st = lsGet(SAVE_KEY);
+  if(st && st.name){
+    const m = Math.floor((st.remaining || 0) / 60000), sec = Math.floor((st.remaining || 0) / 1000) % 60;
+    document.getElementById('resumeName').textContent = st.name + (st.cls ? ' · ' + st.cls : '');
+    document.getElementById('resumeInfo').textContent = 'Module ' + st.curModule + ' · ' + Object.keys(st.answers || {}).length
+      + ' answered · ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+    document.getElementById('resumeBox').style.display = 'block';
+  }
+  if(pendingMem.length) setTimeout(flushPending, 800);
+})();
+
 function openModal(id){ document.getElementById(id).style.display='flex'; }
 function closeModal(id){ document.getElementById(id).style.display='none'; }
 function exitTest(){
   if(confirm("Exit the test? Your current progress will not be saved.")){
+    testActive = false; lsDel(SAVE_KEY);
     location.reload();
   }
 }
@@ -1397,6 +1523,9 @@ function startTest(){
   studentName = document.getElementById('nameInput').value.trim();
   studentClass = document.getElementById('clsInput').value.trim();
   if(!studentName){ alert("Please enter your name."); return; }
+  if(lsGet(SAVE_KEY) && !confirm("There is an unfinished test saved on this computer. Starting a new test will DISCARD it. Continue?\nCó bài làm dở trên máy này. Bắt đầu bài mới sẽ XÓA bài đó. Tiếp tục?")) return;
+  lsDel(SAVE_KEY);
+  testActive = true;
 
   document.getElementById('startScreen').style.display = 'none';
   document.getElementById('testUI').style.display = 'flex';
@@ -1406,6 +1535,7 @@ function startTest(){
   setupOptionsDelegation();
   setupCalcDrag();
   setupCalcResize();
+  startAutosave();
 }
 
 function tickTimer(){
@@ -1635,6 +1765,7 @@ function buildNavGrid(){
   refreshNavGrid();
 }
 function refreshNavGrid(){
+  saveState();
   QUESTIONS.forEach((q,i)=>{
     const btn = document.getElementById('navbtn-'+i);
     if(!btn) return;
@@ -1692,6 +1823,10 @@ function backToTestFromReviewPage(){
 
 let calculatorInstance = null;
 function toggleCalculator(){
+  if(typeof Desmos === 'undefined'){
+    alert("The calculator could not load (no internet when the page was opened). Reconnect to Wi-Fi and reload the page — your answers are saved automatically.\nMáy tính chưa tải được do mất mạng lúc mở đề. Kết nối Wi-Fi rồi tải lại trang — bài làm đã được lưu tự động.");
+    return;
+  }
   const modal = document.getElementById('calcModal');
   const btn = document.getElementById('calcToggleBtn');
   const isOpen = modal.classList.toggle('open');
@@ -1800,12 +1935,9 @@ function submitTest(auto){
     answers: JSON.stringify(answersPayload),
     qtimes: qtimes
   });
-  try {
-    fetch(WEBAPP_URL, { method: "POST", mode: "no-cors", body: params });
-  } catch (err) {
-    const beacon = new Image();
-    beacon.src = WEBAPP_URL + "?" + params.toString();
-  }
+  testActive = false;
+  lsDel(SAVE_KEY);
+  queueSubmission(params.toString());
 
   let correctCount = 0, incorrectCount = 0, omittedCount = 0;
   const catTotals = {}, catWrong = {};
